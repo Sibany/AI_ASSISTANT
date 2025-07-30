@@ -205,3 +205,5 @@ st.sidebar.markdown("""
 1. **Start Ollama server**  
    ```bash
    ollama run gemma3:1b""")
+
+#C:\Users\<your-username>\.ollama_chat_history\<your-username>_chat_history.json
