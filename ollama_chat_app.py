@@ -7,6 +7,8 @@ from gtts import gTTS
 from deep_translator import GoogleTranslator
 import speech_recognition as sr
 import re
+import getpass
+from pathlib import Path
 
 # --- Configuration ---
 OLLAMA_API_URL = "http://localhost:8080/api/generate"
@@ -20,6 +22,30 @@ st.markdown("Interact with your local Ollama model via text or voice in any lang
 # --- Session State ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# --- User Chat History Management ---
+# Identify user
+username = getpass.getuser()
+history_dir = Path.home() / ".ollama_chat_history"
+history_file = history_dir / f"{username}_chat_history.json"
+
+# Ensure directory and file exist
+history_dir.mkdir(parents=True, exist_ok=True)
+if not history_file.exists():
+    with open(history_file, "w", encoding="utf-8") as f:
+        json.dump([], f)
+
+# Load existing messages
+try:
+    with open(history_file, "r", encoding="utf-8") as f:
+        st.session_state.messages = json.load(f)
+except json.JSONDecodeError:
+    st.session_state.messages = []
+
+# Function to save history
+def save_history():
+    with open(history_file, "w", encoding="utf-8") as f:
+        json.dump(st.session_state.messages, f, ensure_ascii=False, indent=2)
 
 # --- Language Code Mapping ---
 gtts_lang_map = {
@@ -128,6 +154,7 @@ if prompt := st.chat_input("Type your message here..."):
 
     # Store user message
     st.session_state.messages.append({"role": "user", "content": prompt})
+    save_history()
     with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -142,6 +169,7 @@ if prompt := st.chat_input("Type your message here..."):
             response_final = response_en
 
         st.session_state.messages.append({"role": "assistant", "content": response_final})
+        save_history()
         with st.chat_message("assistant"):
             st.markdown(response_final)
         text_to_speech(response_final, lang=tts_lang)
@@ -157,6 +185,7 @@ if st.button("🎤 Speak to AI"):
             spoken_translated = spoken_text
 
         st.session_state.messages.append({"role": "user", "content": f"_(Voice)_ {spoken_text}"})
+        save_history()
         with st.chat_message("user"):
             st.markdown(f"_(Voice)_ {spoken_text}")
 
@@ -165,6 +194,7 @@ if st.button("🎤 Speak to AI"):
             response_final = GoogleTranslator(source='en', target=tts_lang).translate(response_en) if tts_lang != "en" else response_en
 
             st.session_state.messages.append({"role": "assistant", "content": response_final})
+            save_history()
             with st.chat_message("assistant"):
                 st.markdown(response_final)
             text_to_speech(response_final, lang=tts_lang)
