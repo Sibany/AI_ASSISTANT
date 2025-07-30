@@ -9,9 +9,20 @@ import speech_recognition as sr
 import re
 import getpass
 from pathlib import Path
+from datetime import datetime
+from pathlib import Path
+import getpass
 
+# Get user and chat storage paths
+username = getpass.getuser()
+history_dir = Path.home() / ".ollama_chat_history"
+history_dir.mkdir(parents=True, exist_ok=True)
+
+history_file = history_dir / f"{username}_chat_history.json"
+archive_dir = history_dir / "archive"
+archive_dir.mkdir(parents=True, exist_ok=True)
 # --- Configuration ---
-OLLAMA_API_URL = "http://localhost:8080/api/generate"
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "gemma3:1b"
 
 # --- Streamlit Setup ---
@@ -83,7 +94,7 @@ def generate_ollama_response(prompt_text):
     headers = {"Content-Type": "application/json"}
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": f"You are a friendly, helpful, and fun AI assistant. Respond in a casual and engaging manner. {prompt_text}",
+        "prompt": f"Your name is Eva and You are a friendly, helpful, and fun AI assistant. Respond in a casual and engaging manner. {prompt_text}",
         "stream": False,
     }
     try:
@@ -116,7 +127,7 @@ def speech_to_text(lang='en-US'):
         try:
             with sr.Microphone() as source:
                 r.adjust_for_ambient_noise(source)
-                audio = r.listen(source, timeout=5, phrase_time_limit=10)
+                audio = r.listen(source, timeout=5, phrase_time_limit=20)
         except sr.WaitTimeoutError:
             st.warning("⏱️ No speech detected.")
             return None
@@ -204,6 +215,32 @@ st.sidebar.header("Setup Instructions")
 st.sidebar.markdown("""
 1. **Start Ollama server**  
    ```bash
-   ollama run gemma3:1b""")
+   ollama run gemma3:1b```
 
+    
+    #streamlit run ollama_chat_app.py --server.port 8080 --server.address 0.0.0.0""")
+def archive_current_chat():
+    if st.session_state.messages:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        archive_file = archive_dir / f"chat_{timestamp}.json"
+        with open(archive_file, "w", encoding="utf-8") as f:
+            json.dump(st.session_state.messages, f, ensure_ascii=False, indent=2)
+
+if st.sidebar.button("🆕 New Chat"):
+    archive_current_chat()
+    st.session_state.messages = []
+    save_history()
+    st.rerun()
+
+st.sidebar.markdown("### 📂 Recent Chats")
+archived_files = sorted(archive_dir.glob("chat_*.json"), reverse=True)
+
+for file in archived_files[:5]:  # show last 5 chats
+    label = file.stem.replace("chat_", "").replace("_", ":", 1).replace("_", "-")
+    if st.sidebar.button(f"🕘 {label}"):
+        with open(file, "r", encoding="utf-8") as f:
+            st.session_state.messages = json.load(f)
+        save_history()
+        st.rerun()
 #C:\Users\<your-username>\.ollama_chat_history\<your-username>_chat_history.json
+#streamlit run ollama_chat_app.py --server.port 8080 --server.address 0.0.0.0
