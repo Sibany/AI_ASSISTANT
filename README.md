@@ -31,8 +31,8 @@ A Streamlit-based chatbot app that lets you **talk to your local Ollama model** 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/yourusername/ollama-voice-chat-ai.git
-cd ollama-voice-chat-ai
+git clone https://github.com/Sibany/AI_ASSISTANT.git
+cd AI_ASSISTANT
 ```
 
 ### 2. Install Ollama & Pull a Model
