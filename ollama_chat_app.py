@@ -37,7 +37,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ===== Global CSS for GPT-style look =====
+# ===== Global CSS + Reopen Arrow (only shows when sidebar is hidden) =====
 st.markdown("""
 <style>
 /* ===== Base + background ===== */
@@ -47,7 +47,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 [data-testid="stAppViewContainer"] { padding-top: 0rem; }
 
-/* keep menu + footer hidden, but leave header visible so the sidebar toggle works */
+/* keep menu + footer hidden, but leave header visible so the native toggle works */
 #MainMenu, footer { visibility: hidden; height: 0; }
 
 /* slim, transparent header; keep the hamburger visible */
@@ -57,7 +57,6 @@ header[data-testid="stHeader"]{
   border-bottom: 0;
   height: 48px;
 }
-header [data-testid="stToolbar"]{ display: none; }
 header [data-testid="baseButton-headerNoPadding"],
 button[title="Collapse sidebar"], button[title="Expand sidebar"]{
   opacity: 1 !important;
@@ -105,7 +104,74 @@ section[data-testid="stSidebar"] .stButton>button {
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px; padding: 8px 10px;
 }
+
+/* ===== Floating reopen arrow (only visible when sidebar is hidden) ===== */
+#reopenSidebar {
+  position: fixed;
+  top: 12px; left: 12px;
+  z-index: 2000;
+  display: none; /* JS toggles this */
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  backdrop-filter: blur(8px);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer; user-select: none;
+  font-size: 18px; line-height: 1;
+}
+#reopenSidebar:hover{ background: rgba(255,255,255,0.14); }
 </style>
+
+<!-- the arrow »« appears only when sidebar is hidden -->
+<div id="reopenSidebar">≪</div>
+
+<script>
+(function(){
+  function nativeToggle(){
+    const btn = Array.from(document.querySelectorAll('button')).find(b=>{
+      const t = (b.title || '');
+      return t.includes('Collapse sidebar') || t.includes('Expand sidebar');
+    });
+    if(btn){ btn.click(); return true; }
+    return false;
+  }
+
+  function isSidebarVisible(){
+    const sb = document.querySelector('section[data-testid="stSidebar"]');
+    if(!sb){ return false; }
+    const style = window.getComputedStyle(sb);
+    return style.display !== 'none' && sb.offsetWidth > 0 && sb.offsetHeight > 0;
+  }
+
+  function refreshArrow(){
+    const arrow = document.getElementById('reopenSidebar');
+    if(!arrow) return;
+    arrow.style.display = isSidebarVisible() ? 'none' : 'block';
+  }
+
+  // Click handler on the arrow
+  const arrow = document.getElementById('reopenSidebar');
+  if(arrow){
+    arrow.addEventListener('click', function(e){
+      e.stopPropagation();
+      if(!nativeToggle()){
+        let tries = 0;
+        const iv = setInterval(()=>{
+          if(nativeToggle() || ++tries > 20){ clearInterval(iv); }
+        }, 150);
+      }
+    }, true);
+  }
+
+  // Observe DOM changes to show/hide arrow correctly when sidebar changes
+  const obs = new MutationObserver(refreshArrow);
+  obs.observe(document.body, {subtree:true, childList:true, attributes:true});
+
+  // Initial check
+  window.addEventListener('load', refreshArrow);
+  setTimeout(refreshArrow, 500);
+})();
+</script>
 """, unsafe_allow_html=True)
 
 # Hide default title and render our own hero when needed
@@ -121,7 +187,7 @@ default_session_state = {
     "rename_states": {},
     "browser_open": False,
     "processing_voice": False,
-    "speech_failed_count": 0,  # Track consecutive speech failures
+    "speech_failed_count": 0,
 }
 for key, value in default_session_state.items():
     if key not in st.session_state:
@@ -139,13 +205,11 @@ except json.JSONDecodeError:
     st.session_state.messages = []
 
 def save_history():
-    """Saves the current chat history to a file."""
     with open(history_file, "w", encoding="utf-8") as f:
         json.dump(st.session_state.messages, f, ensure_ascii=False, indent=2)
 
 # === Helper Functions ===
 def clean_text_for_tts(text):
-    """Removes emojis and extra whitespace from text for TTS."""
     emoji_pattern = re.compile(
         "[" +
         u"\U0001F600-\U0001F64F" +
@@ -159,10 +223,9 @@ def clean_text_for_tts(text):
     return re.sub(r'\s+', ' ', emoji_pattern.sub('', text)).strip()
 
 def build_conversation_prompt():
-    """Builds the prompt for the Ollama model, including history and context."""
     now = datetime.now().strftime('%A, %d %B %Y %I:%M %p')
     location = geocoder.ip('me')
-    loc_str = f"{location.city}, {location.country}" if getattr(location, "ok", False) else "Unknown Location"
+    loc_str = f"{location.country}" if getattr(location, "ok", False) else "Unknown Location"
 
     system_prompt = (
         f"You are a smart, self-aware assistant named Gemma. You know the current date and time is {now} and you are located in {loc_str}.\n"
@@ -176,7 +239,6 @@ def build_conversation_prompt():
     return f"{system_prompt}\n\n{history}user:"
 
 def perform_web_search(query):
-    """Performs a live web search for a query and returns a summary of the results."""
     try:
         url = f"https://www.google.com/search?q={quote(query)}"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -194,7 +256,6 @@ def perform_web_search(query):
         return f"Web search failed: {e}"
 
 def generate_ollama_response(prompt_text, search_results=None):
-    """Sends a request to the Ollama API, now including web search results if available."""
     if search_results:
         prompt_text = (
             f"Using the following information from a web search:\n{search_results}\n\n"
@@ -216,7 +277,6 @@ def generate_ollama_response(prompt_text, search_results=None):
         return f"❌ Error: {e}"
 
 def get_local_news_summary():
-    """Fetches and summarizes local news using Google News."""
     try:
         location = geocoder.ip('me')
         city = getattr(location, "city", None) or "your city"
@@ -244,7 +304,6 @@ def get_local_news_summary():
         return f"News fetch error: {e}"
 
 def text_to_speech(text, lang='en'):
-    """Converts text to speech and plays it, waits until finished."""
     try:
         lines = text.split("\n")
         clean_lines = [line for line in lines if "[" not in line and "http" not in line]
@@ -253,28 +312,23 @@ def text_to_speech(text, lang='en'):
         temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
         tts.save(temp_path)
 
-        # Get audio duration
         audio_info = mutagen.mp3.MP3(temp_path)
         duration = math.ceil(audio_info.info.length)
 
         with open(temp_path, "rb") as f:
             st.audio(f.read(), format="audio/mp3", autoplay=True)
 
-        # Wait for playback to finish before listening
         time.sleep(duration + 0.3)
-
     except Exception as e:
         st.error(f"TTS error: {e}")
 
 def speech_to_text(lang='en-US'):
-    """Records audio from the microphone and converts it to text, stops after 4s silence."""
     r = sr.Recognizer()
     r.pause_threshold = 4  # stop after 4 seconds of silence
     with st.status("🎧 Listening...", expanded=True) as status:
         try:
             with sr.Microphone() as source:
                 r.adjust_for_ambient_noise(source)
-                # Wait for speech to start, then capture until silence
                 audio = r.listen(source, timeout=10)
             status.update(label="✅ Listening complete.", state="complete")
             return r.recognize_google(audio, language=lang)
@@ -286,13 +340,11 @@ def speech_to_text(lang='en-US'):
             return None
 
 def open_browser_with_query(query):
-    """Opens the default browser with a Google search query."""
     url = f"https://www.google.com/search?q={quote(query)}"
     subprocess.Popen(["start", "chrome", url], shell=True)
     st.session_state.browser_open = True
 
 def close_browser():
-    """Closes all instances of the Chrome browser."""
     subprocess.call(["taskkill", "/F", "/IM", "chrome.exe"], shell=True)
     st.session_state.browser_open = False
 
@@ -302,11 +354,9 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 def clean_ai_response(text):
-    """Remove unwanted prefixes like 'Assistant:' or 'assistant:' from model output."""
     return re.sub(r'^(Assistant|assistant):\s*', '', text).strip()
 
 def handle_input(user_input, from_voice=False):
-    """Handles both text and voice input, generates a response, and updates the chat."""
     original = user_input.strip()
     if not original:
         if from_voice:
@@ -318,7 +368,6 @@ def handle_input(user_input, from_voice=False):
             st.session_state.processing_voice = False
         return
 
-    # User command for news
     if "what did you learn today" in original.lower():
         news = get_local_news_summary()
         st.session_state.messages.append({"role": "assistant", "content": news})
@@ -330,7 +379,6 @@ def handle_input(user_input, from_voice=False):
         st.rerun()
         return
 
-    # User command to open browser
     if "open browser" in original.lower():
         query = original.lower().replace("open browser", "").strip()
         open_browser_with_query(query or "")
@@ -344,7 +392,6 @@ def handle_input(user_input, from_voice=False):
         st.rerun()
         return
 
-    # User command to close browser
     if "close browser" in original.lower():
         close_browser()
         message = "❌ Browser closed."
@@ -357,7 +404,6 @@ def handle_input(user_input, from_voice=False):
         st.rerun()
         return
 
-    # --- WEB SEARCH & AI RESPONSE LOGIC ---
     with st.spinner("🔍 Performing web search..."):
         search_results = perform_web_search(original)
 
@@ -400,7 +446,6 @@ def handle_input(user_input, from_voice=False):
 
 # === Empty-state hero (centered, no input) ===
 def render_home():
-    """Show centered hero without the search input."""
     st.markdown(
         """
         <div class="hero-wrap">
@@ -417,14 +462,11 @@ def render_home():
 # === Main Application Logic ===
 new_query = None
 if not st.session_state.messages:
-    # Empty state → show hero
     new_query = render_home()
 
-# If the user typed in the hero (we removed it, so this will be None)
 if new_query:
     handle_input(new_query)
 
-# Standard bottom chat input still works (after first message it looks like ChatGPT)
 if prompt := st.chat_input("Type your message here..."):
     if prompt.strip():
         st.session_state.voice_mode = False
@@ -466,7 +508,6 @@ if st.sidebar.button("🛑 Stop Voice Chat"):
     st.rerun()
 
 def archive_chat():
-    """Archives the current chat session."""
     if st.session_state.messages:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         with open(archive_dir / f"chat_{timestamp}.json", "w", encoding="utf-8") as f:
@@ -507,4 +548,5 @@ for file in archive_files:
                 new_path = archive_dir / f"chat_{clean_name}.json"
                 file.rename(new_path)
                 st.success(f"Renamed to {clean_name}")
-                st.session_state.rename_st
+                st.session_state.rename_states[file_id] = False
+                st.rerun()
